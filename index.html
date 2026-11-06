@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prueba 3D · Virtual Lab de redes</title>
+<style>
+:root{--bg:#0b1020;--panel:#121a33;--ink:#e6ecff;--muted:#9aa8d6;--line:#26345f;--pri:#22d3ee;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,sans-serif;background:var(--bg);color:var(--ink);line-height:1.5}
+.wrap{max-width:1100px;margin:0 auto;padding:16px}
+h1{margin:0 0 4px;font-size:24px}
+.sub{color:var(--muted);margin:0 0 12px}
+.grid{display:grid;grid-template-columns:1.6fr 1fr;gap:14px}
+@media (max-width:900px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px}
+#view{position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#000}
+canvas{display:block;width:100%;height:440px;cursor:grab;touch-action:none}
+canvas:active{cursor:grabbing}
+#label{position:absolute;left:12px;bottom:12px;background:#000c;padding:6px 12px;border-radius:10px;font-size:14px;pointer-events:none}
+#fpsTag{position:absolute;right:12px;top:10px;background:#000c;padding:4px 10px;border-radius:8px;font-size:13px;font-family:ui-monospace,monospace}
+#testing{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+#testing span{background:#000b;padding:10px 18px;border-radius:12px;font-weight:700}
+button{font:inherit;font-size:14px;border:0;border-radius:10px;padding:8px 13px;background:var(--pri);color:#04121a;font-weight:700;cursor:pointer}
+button.ghost{background:transparent;color:var(--pri);border:1px solid var(--pri)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td{border-bottom:1px solid var(--line);padding:6px 4px;vertical-align:top}
+td:first-child{color:var(--muted);width:45%}
+.verdict{font-size:20px;font-weight:800;margin:6px 0}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+ol{margin:6px 0 0;padding-left:20px}
+textarea{width:100%;height:110px;background:#050914;color:#a7f3d0;border:1px solid var(--line);border-radius:10px;font-family:ui-monospace,monospace;font-size:12px;padding:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🧪 Prueba 3D del Virtual Lab</h1>
+  <p class="sub">Ábrela en un ordenador del aula, espera unos 10 segundos sin tocar nada y mira el resultado. Después prueba a girar el aula con el ratón y a hacer clic en los aparatos.</p>
+  <div class="grid">
+    <div>
+      <div id="view">
+        <canvas id="c"></canvas>
+        <div id="label">Arrastra para girar · rueda para acercar · clic en un aparato</div>
+        <div id="fpsTag">— FPS</div>
+        <div id="testing"><span>⏱️ Midiendo rendimiento… no toques nada</span></div>
+      </div>
+      <div class="row">
+        <button id="qHigh">✨ Gráficos altos</button>
+        <button id="qLow" class="ghost">🐢 Gráficos bajos</button>
+        <button id="stress" class="ghost">💪 Prueba exigente (aula x3)</button>
+        <button id="again" class="ghost">🔁 Repetir medición</button>
+      </div>
+    </div>
+    <div>
+      <div class="panel">
+        <h3 style="margin:0">📋 Resultado</h3>
+        <div class="verdict" id="verdict">Midiendo…</div>
+        <p id="advice" style="margin:0;color:var(--muted);font-size:14px"></p>
+        <table id="info" style="margin-top:10px"></table>
+      </div>
+      <div class="panel" style="margin-top:14px">
+        <h3 style="margin:0 0 6px">✅ Comprueba también</h3>
+        <ol style="font-size:14px">
+          <li>¿Puedes <b>girar</b> el aula arrastrando con el ratón?</li>
+          <li>¿Al hacer <b>clic en el switch</b> aparece su nombre abajo?</li>
+          <li>¿Ves las <b>luces verdes</b> del switch parpadear y el <b>paquete amarillo</b> moverse por los cables?</li>
+        </ol>
+        <p style="font-size:14px;margin:10px 0 4px">Copia este texto y pégamelo en el chat:</p>
+        <textarea id="report" readonly></textarea>
+        <div class="row" style="margin-top:6px"><button id="copy" class="ghost">📋 Copiar resultado</button><span id="copied" style="font-size:13px;color:var(--ok)"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===================== MATEMÁTICAS ===================== */
+const M4={
+  persp(f,a,n,fa){const t=1/Math.tan(f/2),nf=1/(n-fa);return [t/a,0,0,0, 0,t,0,0, 0,0,(fa+n)*nf,-1, 0,0,2*fa*n*nf,0];},
+  lookAt(e,c,u){let z=norm(sub(e,c)),x=norm(cross(u,z)),y=cross(z,x);return [x[0],y[0],z[0],0, x[1],y[1],z[1],0, x[2],y[2],z[2],0, -dot(x,e),-dot(y,e),-dot(z,e),1];},
+  mul(a,b){const o=new Array(16);for(let i=0;i<4;i++)for(let j=0;j<4;j++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k];o[i*4+j]=s;}return o;},
+  inv(m){const a=m,o=new Array(16);
+    const b00=a[0]*a[5]-a[1]*a[4],b01=a[0]*a[6]-a[2]*a[4],b02=a[0]*a[7]-a[3]*a[4],b03=a[1]*a[6]-a[2]*a[5],b04=a[1]*a[7]-a[3]*a[5],b05=a[2]*a[7]-a[3]*a[6],
+          b06=a[8]*a[13]-a[9]*a[12],b07=a[8]*a[14]-a[10]*a[12],b08=a[8]*a[15]-a[11]*a[12],b09=a[9]*a[14]-a[10]*a[13],b10=a[9]*a[15]-a[11]*a[13],b11=a[10]*a[15]-a[11]*a[14];
+    const d=1/(b00*b11-b01*b10+b02*b09+b03*b08-b04*b07+b05*b06);
+    o[0]=(a[5]*b11-a[6]*b10+a[7]*b09)*d;o[1]=(a[2]*b10-a[1]*b11-a[3]*b09)*d;o[2]=(a[13]*b05-a[14]*b04+a[15]*b03)*d;o[3]=(a[10]*b04-a[9]*b05-a[11]*b03)*d;
+    o[4]=(a[6]*b08-a[4]*b11-a[7]*b07)*d;o[5]=(a[0]*b11-a[2]*b08+a[3]*b07)*d;o[6]=(a[14]*b02-a[12]*b05-a[15]*b01)*d;o[7]=(a[8]*b05-a[10]*b02+a[11]*b01)*d;
+    o[8]=(a[4]*b10-a[5]*b08+a[7]*b06)*d;o[9]=(a[1]*b08-a[0]*b10-a[3]*b06)*d;o[10]=(a[12]*b04-a[13]*b02+a[15]*b00)*d;o[11]=(a[9]*b02-a[8]*b04-a[11]*b00)*d;
+    o[12]=(a[5]*b07-a[4]*b09-a[6]*b06)*d;o[13]=(a[0]*b09-a[1]*b07+a[2]*b06)*d;o[14]=(a[13]*b01-a[12]*b03-a[14]*b00)*d;o[15]=(a[8]*b03-a[9]*b01+a[10]*b00)*d;return o;}
+};
+const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+      cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],norm=a=>{const l=Math.hypot(...a)||1;return [a[0]/l,a[1]/l,a[2]/l];};
+const hex=h=>[parseInt(h.slice(1,3),16)/255,parseInt(h.slice(3,5),16)/255,parseInt(h.slice(5,7),16)/255];
+
+/* ===================== WEBGL ===================== */
+const cv=document.getElementById('c');
+let gl=cv.getContext('webgl',{antialias:true})||cv.getContext('experimental-webgl');
+const info={};
+if(!gl){document.getElementById('verdict').innerHTML='<span class="bad">🔴 Este navegador no puede mostrar 3D (WebGL desactivado)</span>';document.getElementById('advice').textContent='El laboratorio 3D no funcionaría en este ordenador. Prueba en otro navegador (Chrome o Firefox) o dímelo para buscar alternativa.';document.getElementById('testing').remove();}
+const VS=`attribute vec3 p;attribute vec3 n;uniform mat4 vp;uniform vec3 pos;uniform vec3 sc;varying vec3 vn;varying float vy;
+void main(){vec3 w=p*sc+pos;vn=n;vy=w.y;gl_Position=vp*vec4(w,1.0);}`;
+const FS=`precision mediump float;varying vec3 vn;varying float vy;uniform vec3 col;uniform float emi;
+void main(){vec3 L=normalize(vec3(.45,.85,.35));float d=max(dot(normalize(vn),L),0.0);float l=.38+.62*d;vec3 c=mix(col*l,col,emi);gl_FragColor=vec4(c,1.0);}`;
+let prog,uVP,uPos,uSc,uCol,uEmi;
+function setupGL(){
+  const sh=(t,s)=>{const o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(o));return o;};
+  prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,VS));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FS));gl.linkProgram(prog);gl.useProgram(prog);
+  // cubo unidad centrado (-.5..5) con normales
+  const F=[[[1,0,0],[[.5,-.5,-.5],[.5,.5,-.5],[.5,.5,.5],[.5,-.5,.5]]],[[-1,0,0],[[-.5,-.5,.5],[-.5,.5,.5],[-.5,.5,-.5],[-.5,-.5,-.5]]],
+           [[0,1,0],[[-.5,.5,-.5],[-.5,.5,.5],[.5,.5,.5],[.5,.5,-.5]]],[[0,-1,0],[[-.5,-.5,.5],[-.5,-.5,-.5],[.5,-.5,-.5],[.5,-.5,.5]]],
+           [[0,0,1],[[.5,-.5,.5],[.5,.5,.5],[-.5,.5,.5],[-.5,-.5,.5]]],[[0,0,-1],[[-.5,-.5,-.5],[-.5,.5,-.5],[.5,.5,-.5],[.5,-.5,-.5]]]];
+  const P=[],N=[],I=[];F.forEach(([n,v],f)=>{v.forEach(q=>{P.push(...q);N.push(...n);});const b=f*4;I.push(b,b+1,b+2,b,b+2,b+3);});
+  const buf=(d,a,sz)=>{const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(d),gl.STATIC_DRAW);const l=gl.getAttribLocation(prog,a);gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,sz,gl.FLOAT,false,0,0);};
+  buf(P,'p',3);buf(N,'n',3);const ib=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(I),gl.STATIC_DRAW);
+  uVP=gl.getUniformLocation(prog,'vp');uPos=gl.getUniformLocation(prog,'pos');uSc=gl.getUniformLocation(prog,'sc');uCol=gl.getUniformLocation(prog,'col');uEmi=gl.getUniformLocation(prog,'emi');
+  gl.enable(gl.DEPTH_TEST);gl.clearColor(.05,.07,.13,1);
+  const dbg=gl.getExtension('WEBGL_debug_renderer_info');info.gpu=dbg?gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER);
+  info.webgl=gl.getParameter(gl.VERSION);
+}
+
+/* ===================== ESCENA: AULA ===================== */
+let objs=[],leds=[],packetPaths=[],copies=1;
+function box(name,pos,sc,col,o={}){const b={name,pos,sc,col:hex(col),emi:o.emi||0,pick:o.pick||null,blink:o.blink||0,hideIf:o.hideIf||null};objs.push(b);return b;}
+function buildScene(){
+  objs=[];leds=[];packetPaths=[];
+  const RW=12,RD=9; // aula 12 x 9 m
+  box('Suelo',[0,-.05,0],[RW*copies,.1,RD],'#2b3550');
+  box('Pared',[0,1.5,-RD/2],[RW*copies,3,.1],'#3d4a6e',{hideIf:e=>e[2]<-RD/2});
+  box('Pared',[-RW*copies/2,1.5,0],[.1,3,RD],'#34405f',{hideIf:e=>e[0]<-RW*copies/2});
+  box('Pared',[RW*copies/2,1.5,0],[.1,3,RD],'#34405f',{hideIf:e=>e[0]>RW*copies/2});
+  box('Pared',[0,1.5,RD/2],[RW*copies,3,.1],'#3d4a6e',{hideIf:e=>e[2]>RD/2});
+  // pizarra y ventana
+  box('Pizarra',[-2,1.6,-RD/2+.07],[3.2,1.2,.04],'#14532d');
+  for(let c=0;c<copies;c++){const ox=(c-(copies-1)/2)*RW;
+    // armario rack con switch
+    const rk=[ox+RW/2-1,0,-RD/2+.6];
+    box('Armario de red (rack)',[rk[0],.9,rk[2]],[.7,1.8,.6],'#1e293b',{pick:'rack'});
+    box('Switch TP-Link de 16 puertos',[rk[0],1.25,rk[2]+.31],[.62,.12,.04],'#0f172a',{pick:'switch'});
+    for(let i=0;i<8;i++)leds.push(box('Luz del puerto '+(i+1),[rk[0]-.26+i*.075,1.25,rk[2]+.335],[.03,.03,.01],'#22c55e',{emi:1,blink:Math.random()*6,pick:'switch'}));
+    box('Router (puerta de enlace)',[rk[0],1.55,rk[2]+.31],[.5,.1,.04],'#334155',{pick:'router'});
+    box('Luz del router',[rk[0]+.18,1.55,rk[2]+.335],[.03,.03,.01],'#38bdf8',{emi:1,pick:'router'});
+    // fibra que entra por la pared
+    box('Fibra óptica (entrada a Internet)',[rk[0]+.35,2.3,-RD/2+.12],[.04,1.4,.04],'#f59e0b',{pick:'fibra'});
+    // punto de acceso en el techo (colgado)
+    box('Punto de acceso WiFi',[ox,2.85,0],[.45,.08,.45],'#e2e8f0',{pick:'ap'});
+    box('Luz del punto de acceso',[ox,2.8,.23],[.06,.02,.01],'#a78bfa',{emi:1,pick:'ap'});
+    // 8 puestos en 2 filas
+    for(let r=0;r<2;r++)for(let k=0;k<4;k++){
+      const x=ox-RW/2+2+k*2.4,z=-.8+r*2.6,id=r*4+k+1;
+      box('Mesa',[x,.74,z],[1.6,.06,.8],'#8b6b47');
+      [[-.75,-.35],[.75,-.35],[-.75,.35],[.75,.35]].forEach(l=>box('Mesa',[x+l[0],.37,z+l[1]],[.05,.74,.05],'#6b5135'));
+      box('Monitor del PC-'+id,[x,1.07,z-.22],[.62,.38,.04],'#0f172a',{pick:'monitor'});
+      box('Pantalla del PC-'+id,[x,1.07,z-.199],[.56,.32,.005],['#1d4ed8','#0e7490','#7c3aed','#15803d'][id%4],{emi:.85,pick:'monitor'});
+      box('Pie del monitor',[x,.84,z-.22],[.08,.14,.08],'#1e293b');
+      box('Teclado',[x,.785,z+.05],[.45,.02,.15],'#cbd5e1');
+      box('Torre del PC-'+id,[x+.55,.95,z-.1],[.2,.42,.42],'#111827',{pick:'torre'});
+      box('Luz de la tarjeta de red del PC-'+id,[x+.55,.85,z-.315],[.03,.03,.01],'#22c55e',{emi:1,blink:Math.random()*6,pick:'nic'});
+      box('Silla',[x,.45,z+.75],[.45,.06,.45],'#475569');box('Silla',[x,.75,z+.97],[.45,.55,.05],'#475569');
+      // cable: torre -> suelo -> hacia el rack
+      const c='#2563eb',y=.03,x0=x+.55,z0=z-.32,xr=rk[0],zr=rk[2]+.4,zc=-RD/2+1.4+r*.08;
+      box('Cable de par trenzado (RJ45)',[x0,.47,z0-.02],[.025,.86,.025],c,{pick:'cable'});
+      box('Cable de par trenzado (RJ45)',[x0,y,(z0+zc)/2],[.03,.03,Math.abs(z0-zc)],c,{pick:'cable'});
+      box('Cable de par trenzado (RJ45)',[(x0+xr)/2,y,zc],[Math.abs(xr-x0),.03,.03],c,{pick:'cable'});
+      packetPaths.push([[x0,.9,z0-.02],[x0,y+.05,z0],[x0,y+.05,zc],[xr,y+.05,zc],[xr,1.25,zr]]);
+    }
+  }
+  objs.forEach(o=>o.min=[o.pos[0]-o.sc[0]/2,o.pos[1]-o.sc[1]/2,o.pos[2]-o.sc[2]/2]);
+  objs.forEach(o=>o.max=[o.pos[0]+o.sc[0]/2,o.pos[1]+o.sc[1]/2,o.pos[2]+o.sc[2]/2]);
+  packets=packetPaths.slice(0,Math.min(6,packetPaths.length)).map((p,i)=>({path:p,t:i*.6}));
+}
+let packets=[];
+const pk=hex('#fde047');
+
+/* ===================== CÁMARA ===================== */
+let yaw=.55,pitch=.62,dist=12,target=[0,.6,0],auto=true,autoT=0;
+let quality=1,selected=null;
+function resize(){const r=cv.getBoundingClientRect(),dpr=(window.devicePixelRatio||1)*quality;cv.width=Math.max(1,Math.round(r.width*dpr));cv.height=Math.max(1,Math.round(r.height*dpr));gl&&gl.viewport(0,0,cv.width,cv.height);}
+function eye(){return [target[0]+dist*Math.cos(pitch)*Math.sin(yaw),target[1]+dist*Math.sin(pitch),target[2]+dist*Math.cos(pitch)*Math.cos(yaw)];}
+let VP=null;
+let drag=null;
+cv.addEventListener('pointerdown',e=>{drag={x:e.clientX,y:e.clientY,moved:0};cv.setPointerCapture(e.pointerId);});
+cv.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.moved+=Math.abs(dx)+Math.abs(dy);drag.x=e.clientX;drag.y=e.clientY;if(!measuring)auto=false;
+  yaw-=dx*.006;pitch=Math.max(.08,Math.min(1.45,pitch+dy*.006));});
+cv.addEventListener('pointerup',e=>{if(drag&&drag.moved<6)pickAt(e);drag=null;});
+cv.addEventListener('wheel',e=>{e.preventDefault();dist=Math.max(3,Math.min(40,dist*(1+Math.sign(e.deltaY)*.1)));},{passive:false});
+function pickAt(e){const r=cv.getBoundingClientRect();const nx=(e.clientX-r.left)/r.width*2-1,ny=1-(e.clientY-r.top)/r.height*2;
+  const inv=M4.inv(VP);const un=(x,y,z)=>{const v=[x,y,z,1],o=[0,0,0,0];for(let i=0;i<4;i++)for(let k=0;k<4;k++)o[i]+=inv[k*4+i]*v[k];return [o[0]/o[3],o[1]/o[3],o[2]/o[3]];};
+  const a=un(nx,ny,-1),b=un(nx,ny,1),d=norm(sub(b,a));let best=null;const hits=[];
+  objs.forEach(o=>{if(!o.pick)return;let t0=-1e9,t1=1e9;for(let i=0;i<3;i++){if(Math.abs(d[i])<1e-9){if(a[i]<o.min[i]||a[i]>o.max[i]){t0=1e9;break;}continue;}
+      let ta=(o.min[i]-a[i])/d[i],tb=(o.max[i]-a[i])/d[i];if(ta>tb)[ta,tb]=[tb,ta];t0=Math.max(t0,ta);t1=Math.min(t1,tb);}
+    if(t0<=t1&&t0>0)hits.push({o,t:t0});});
+  hits.sort((x,y)=>x.t-y.t);if(hits.length){const vol=o=>o.sc[0]*o.sc[1]*o.sc[2];best=hits.filter(h=>h.t<hits[0].t+.25).sort((x,y)=>vol(x.o)-vol(y.o))[0].o;}
+  // también bloquean el rayo objetos no clicables grandes (suelo/paredes) — ignorado a propósito en la prueba
+  selected=best;clicks++;
+  document.getElementById('label').innerHTML=best?`👆 Has hecho clic en: <b>${best.name}</b>`:'No hay ningún aparato ahí. Prueba con el switch, el router o un PC.';
+  if(best)clickOK=true;updateReport();}
+
+/* ===================== BUCLE ===================== */
+let last=performance.now(),frames=[],measuring=true,mStart=0,clicks=0,clickOK=false,result=null;
+function draw(t){
+  const dt=Math.max(0,Math.min(100,t-last));last=t;if(dt>0)frames.push(dt);if(frames.length>120)frames.shift();
+  if(auto){autoT+=dt;yaw=.55+.75*Math.sin(autoT*.00035);}
+  const e=eye();const P=M4.persp(.9,cv.width/cv.height,.1,200),V=M4.lookAt(e,target,[0,1,0]);VP=M4.mul(P,V);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.uniformMatrix4fv(uVP,false,new Float32Array(VP));
+  const ts=t/1000;
+  for(const o of objs){if(o.hideIf&&o.hideIf(e))continue;let col=o.col,emi=o.emi;
+    if(o.blink){const on=Math.sin(ts*9+o.blink*3)>-.2;col=on?o.col:[o.col[0]*.25,o.col[1]*.25,o.col[2]*.25];}
+    if(selected&&o.pick&&o.pick===selected.pick&&o.name===selected.name){col=[1,.85,.3];emi=.6;}
+    gl.uniform3fv(uPos,o.pos);gl.uniform3fv(uSc,o.sc);gl.uniform3fv(uCol,col);gl.uniform1f(uEmi,emi);gl.drawElements(gl.TRIANGLES,36,gl.UNSIGNED_SHORT,0);}
+  // paquetes
+  packets.forEach(p=>{p.t+=dt/1000*.55;const segs=p.path.length-1;const u=(((p.t%1)+1)%1)*segs,i=Math.min(segs-1,Math.floor(u)),f=u-i;const A=p.path[i],B=p.path[i+1];
+    const pos=[A[0]+(B[0]-A[0])*f,A[1]+(B[1]-A[1])*f,A[2]+(B[2]-A[2])*f];gl.uniform3fv(uPos,pos);gl.uniform3fv(uSc,[.12,.12,.12]);gl.uniform3fv(uCol,pk);gl.uniform1f(uEmi,1);gl.drawElements(gl.TRIANGLES,36,gl.UNSIGNED_SHORT,0);});
+  const fps=1000/(frames.reduce((a,b)=>a+b,0)/frames.length);document.getElementById('fpsTag').textContent=Math.round(fps)+' FPS';
+  if(measuring){if(!mStart)mStart=t;if(dt>0)mFrames.push(dt);if(t-mStart>8000)finish();}
+  requestAnimationFrame(draw);
+}
+let mFrames=[];
+function startMeasure(){measuring=true;mStart=0;mFrames=[];auto=true;document.getElementById('verdict').textContent='Midiendo…';document.getElementById('advice').textContent='';
+  if(!document.getElementById('testing')){const d=document.createElement('div');d.id='testing';d.innerHTML='<span>⏱️ Midiendo rendimiento… no toques nada</span>';document.getElementById('view').appendChild(d);}}
+function finish(){measuring=false;const fr=mFrames.slice(15);const avg=1000/(fr.reduce((a,b)=>a+b,0)/fr.length);const sorted=fr.slice().sort((a,b)=>b-a);const low=1000/sorted[Math.floor(sorted.length*.05)];
+  result={avg:Math.round(avg),low:Math.round(low)};const t=document.getElementById('testing');if(t)t.remove();
+  const v=document.getElementById('verdict'),a=document.getElementById('advice');
+  if(avg>=45){v.innerHTML='<span class="ok">✅ Va fluido</span>';a.textContent='El laboratorio 3D funcionará bien en este ordenador con gráficos altos.';}
+  else if(avg>=25){v.innerHTML='<span class="warn">🟡 Aceptable</span>';a.textContent='Funcionará, mejor con gráficos bajos. Pulsa «Gráficos bajos» y repite la medición para comparar.';}
+  else{v.innerHTML='<span class="bad">🔴 Va lento</span>';a.textContent='Pulsa «Gráficos bajos» y repite. Si sigue por debajo de 25 FPS, haré una versión más ligera del laboratorio.';}
+  updateReport();}
+function updateReport(){
+  const rows=[['Fluidez (media)',result?result.avg+' FPS':'midiendo…'],['Fluidez (peor momento)',result?result.low+' FPS':'—'],['Calidad',quality===1?'gráficos altos':'gráficos bajos'],['Escena',copies===1?'aula normal (8 PCs)':'prueba exigente (24 PCs)'],
+    ['Objetos dibujados',objs.length+packets.length],['Tarjeta gráfica',info.gpu||'—'],['WebGL',info.webgl||'—'],['Pantalla',`${screen.width}×${screen.height} (zoom ${Math.round((window.devicePixelRatio||1)*100)}%)`],
+    ['Navegador',navigator.userAgent.match(/(Firefox|Chrome|Chromium|Edg)\/[\d.]+/g)?.join(' ')||navigator.userAgent.slice(0,60)],['Librería 3D (three.js) desde internet',libState],['Clic en aparatos',clickOK?'funciona ✔':(clicks?'probado, sin acierto':'sin probar')]];
+  document.getElementById('info').innerHTML=rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('');
+  document.getElementById('report').value='PRUEBA 3D VIRTUAL LAB\n'+rows.map(r=>`${r[0]}: ${String(r[1]).replace(/<[^>]+>/g,'')}`).join('\n');}
+
+/* ===================== ¿CARGA THREE.JS? ===================== */
+let libState='comprobando…';
+(function(){const s=document.createElement('script');let done=false;const to=setTimeout(()=>{if(!done){done=true;libState='❌ no carga (bloqueada o sin conexión)';updateReport();}},10000);
+  s.onload=()=>{if(done)return;done=true;clearTimeout(to);libState=window.THREE?'✔ carga correctamente (r'+THREE.REVISION+')':'⚠️ carga rara';updateReport();};
+  s.onerror=()=>{if(done)return;done=true;clearTimeout(to);libState='❌ no carga (bloqueada o sin conexión)';updateReport();};
+  s.src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';document.head.appendChild(s);})();
+
+/* ===================== BOTONES ===================== */
+const $=id=>document.getElementById(id);
+function setQ(q){quality=q;$('qHigh').className=q===1?'':'ghost';$('qLow').className=q===1?'ghost':'';resize();startMeasure();}
+$('qHigh').onclick=()=>setQ(1);$('qLow').onclick=()=>setQ(.55);
+$('stress').onclick=()=>{copies=copies===1?3:1;$('stress').textContent=copies===1?'💪 Prueba exigente (aula x3)':'↩️ Volver al aula normal';dist=copies===1?12:24;buildScene();startMeasure();};
+$('again').onclick=startMeasure;
+$('copy').onclick=()=>{const t=$('report');t.select();try{navigator.clipboard.writeText(t.value).then(()=>$('copied').textContent='¡Copiado!',()=>{document.execCommand('copy');$('copied').textContent='¡Copiado!';});}catch(e){document.execCommand('copy');$('copied').textContent='¡Copiado!';}};
+addEventListener('resize',resize);
+if(gl){try{setupGL();buildScene();resize();updateReport();requestAnimationFrame(draw);}catch(err){$('verdict').innerHTML='<span class="bad">🔴 Error al iniciar el 3D</span>';$('advice').textContent=String(err);}}
+</script>
+</body>
+</html>
